@@ -54,6 +54,11 @@ TDDCyclesRouter.get(
 );
 
 TDDCyclesRouter.get(
+  "/commits-history-by-branches",
+  async (req, res) => await tddCyclesController.getCommitHistoryByBranches(req, res)
+);
+
+TDDCyclesRouter.get(
   "/commit-cycles",
   async (req, res) => await tddCyclesController.getCommitCycles(req, res)
 );

@@ -16,6 +16,7 @@ export interface IGithubRepository {
     getCommitsInforForTDDCycle(owner: string, repoName: string, commits: CommitDataObject[]): Promise<TDDCycleDataObject[]>;
     fetchCoverageDataForCommit(owner: string, repoName: string, sha: string): Promise<any>;
     fetchCommitHistoryJson(owner: string, repoName: string): Promise<any[]>;
+    getCommitHistoryByBranches(owner: string, repoName: string): Promise<Record<string, any[]>>;
     getCommitHistoryData(owner: string, repoName: string): Promise<CommitHistoryData[]>;
     getCommitCyclesData(owner: string, repoName: string): Promise<CommitCycleData[]>;
 }

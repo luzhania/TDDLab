@@ -10,6 +10,7 @@ import { DBCommitsRepository } from "../../modules/TDDCycles/Repositories/DBComm
 import { GetCommitTimeLineUseCase } from "../../modules/TDDCycles/Application/getCommitTimeLineUseCase";
 import { GetCommitHistoryUseCase } from "../../modules/TDDCycles/Application/getCommitHistoryUseCase";
 import { GetCommitCyclesUseCase } from "../../modules/TDDCycles/Application/getCommitCyclesUseCase";
+import { GetCommitHistoryByBranchesUseCase } from "../../modules/TDDCycles/Application/getCommitHistoryByBranchesUseCase";
 
 
 
@@ -22,6 +23,7 @@ class TDDCyclesController {
   dbJobsRepository: IDBJobsRepository;
   getCommitExecutions: GetCommitTimeLineUseCase;
   getCommitHistoryUseCase: GetCommitHistoryUseCase;
+  getCommitHistoryByBranchesUseCase: GetCommitHistoryByBranchesUseCase;
   getCommitCyclesUseCase: GetCommitCyclesUseCase;
 
   constructor(
@@ -44,6 +46,7 @@ class TDDCyclesController {
       dbJobsRepository,
     );
     this.getCommitHistoryUseCase = new GetCommitHistoryUseCase(githubRepository);
+  this.getCommitHistoryByBranchesUseCase = new GetCommitHistoryByBranchesUseCase(githubRepository);
     this.getCommitCyclesUseCase = new GetCommitCyclesUseCase(githubRepository);
     this.dbCommitsRepository = new DBCommitsRepository();
     this.dbJobsRepository = dbJobsRepository;
@@ -98,6 +101,22 @@ class TDDCyclesController {
       return res.status(200).json(commits);
     } catch (error) {
       console.error("Error fetching commit history:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  }
+
+  // New: devuelve commits agrupados por branch
+  async getCommitHistoryByBranches(req: Request, res: Response) {
+    try {
+      const { owner, repoName } = req.query;
+      if (!owner || !repoName) {
+        return res.status(400).json({ error: "Bad request, missing owner or repoName" });
+      }
+
+      const data = await this.getCommitHistoryByBranchesUseCase.execute(String(owner), String(repoName));
+      return res.status(200).json(data);
+    } catch (error) {
+      console.error("Error fetching commit history by branches:", error);
       return res.status(500).json({ error: "Server error" });
     }
   }

@@ -64,6 +64,8 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
 
   const [ownerName, setOwnerName] = useState<string>("");
   const [commitsInfo, setCommitsInfo] = useState<CommitDataObject[] | null>(null);
+  const [branchesMap, setBranchesMap] = useState<Record<string, CommitDataObject[]> | null>(null);
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [tddLogsInfo, setTDDLogsInfo] = useState<TDDLogEntry[] | null>(null);
   const [commitsTddCycles, setCommitsTddCycles] = useState<CommitCycle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,15 +79,41 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
   const getCommitTddCycleUseCase = new GetCommitTddCycle(port);
   const getTDDLogsUseCase = new GetTDDLogs(port);
   const getUserNameUseCase = new GetUserName(port);
+  // if adapter supports branches
+  // if adapter supports branches - bind to preserve `this` (the adapter instance)
+  const obtainCommitsByBranches = (port as any).obtainCommitsByBranches
+    ? (port as any).obtainCommitsByBranches.bind(port)
+    : null;
 
   const fetchData = async () => {
     setLoading(true);
     try {
   const tddlogs = await getTDDLogsUseCase.execute(repoOwner, repoName);
-      setTDDLogsInfo(tddlogs);
-
+   setTDDLogsInfo(tddlogs);
+   console.debug("TDDChartPage.fetchData - tddlogs (count):", Array.isArray(tddlogs) ? tddlogs.length : 0, tddlogs?.slice?.(0,3));
+  
   const commits = await getCommitsOfRepoUseCase.execute(repoOwner, repoName);
-      setCommitsInfo(commits);
+   setCommitsInfo(commits);
+   console.debug("TDDChartPage.fetchData - commits (count):", Array.isArray(commits) ? commits.length : 0, commits?.slice?.(0,3));
+
+  // try to fetch commits grouped by branches
+  if (obtainCommitsByBranches) {
+    try {
+      const branches = await obtainCommitsByBranches(repoOwner, repoName);
+      console.debug("TDDChartPage.fetchData - branches from adapter:", Object.keys(branches || {}));
+      setBranchesMap(branches);
+      const branchNames = Object.keys(branches);
+      if (branchNames.length > 0) {
+        setSelectedBranch(branchNames[0]);
+        setCommitsInfo(branches[branchNames[0]]);
+      }
+    } catch (err) {
+      console.warn("Could not fetch branches map:", err);
+    }
+  }
+  else{
+    console.debug("TDDChartPage.fetchData - adapter does not support obtainCommitsByBranches");
+  }
 
   const tddCycles = await getCommitTddCycleUseCase.execute(repoOwner, repoName);
       setCommitsTddCycles(tddCycles);
@@ -257,6 +285,25 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
             </div>
           )}
           <div className="mainInfoContainer">
+            {branchesMap && (
+              <div style={{ marginBottom: 12 }}>
+                <label htmlFor="branch-select">Seleccionar rama: </label>
+                <select
+                  id="branch-select"
+                  value={selectedBranch ?? ""}
+                  onChange={(e) => {
+                    const bn = e.target.value;
+                    setSelectedBranch(bn);
+                    setCommitsInfo(branchesMap[bn] || []);
+                  }}
+                >
+                  {Object.keys(branchesMap).map((bn) => (
+                    <option key={bn} value={bn}>{bn}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <TDDCharts
               data-testId="cycle-chart"
               commits={commitsInfo}

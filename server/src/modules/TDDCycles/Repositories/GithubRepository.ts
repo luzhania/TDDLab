@@ -7,7 +7,7 @@ import {
 import dotenv from "dotenv";
 import { JobDataObject } from "../Domain/JobDataObject";
 import { TDDCycleDataObject } from "../Domain/TDDCycleDataObject";
-import axios from "axios";
+import { MongoClient, ObjectId } from "mongodb";
 import { CommitCycleData } from "../Domain/ICommitCycleData";
 import { CommitHistoryData } from "../Domain/ICommitHistoryData";
 
@@ -305,18 +305,237 @@ export class GithubRepository implements IGithubRepository {
   }
 
   async fetchCommitHistoryJson(owner: string, repoName: string): Promise<any[]> {
+    // 'owner' is part of the repository interface but not used by current MongoDB layout
+    // reference it here to avoid TS6133 (declared but its value is never read)
+    void owner;
+    // Read commit history from MongoDB instead of raw JSON
+    const { MONGO_URI } = process.env;
+    if (!MONGO_URI) {
+      throw new Error("MONGO_URI not set in environment");
+    }
+
+    const client = new MongoClient(String(MONGO_URI));
     try {
-      const url = `https://raw.githubusercontent.com/${owner}/${repoName}/main/script/commit-history.json`;
-      const response = await axios.get(url);
-      
-      if (response.status !== 200) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
+      await client.connect();
+      console.log("Connected to MongoDB");
+      // Allow overriding the database name via MONGO_DB_NAME env var. If not provided,
+      // client.db() will use the database specified in the connection string or default to 'test'.
+      const dbName = process.env.MONGO_DB_NAME;
+      const db = dbName ? client.db(dbName) : client.db();
+      console.log("GithubRepository.fetchCommitHistoryJson - using db:", db.databaseName || '<unknown>');
+      const branchesColl = db.collection("branches");
+      const commitsColl = db.collection("commits");
+
+      // find branches for repo
+      const branches = await branchesColl.find({ repo_name: repoName }).toArray();
+
+      // collect commit ids
+      const allCommitIds: string[] = [];
+      for (const b of branches) {
+        if (Array.isArray(b.commits)) {
+          for (const c of b.commits) {
+            if (c) allCommitIds.push(String(c));
+          }
+        }
       }
 
-      return response.data as any[];
+      let commitDocs: any[] = [];
+      if (allCommitIds.length === 0) {
+        // fallback: try commits documents with repo_name field
+        commitDocs = await commitsColl.find({ repo_name: repoName }).toArray();
+      } else {
+        const queryIds = allCommitIds.map((id) => (ObjectId.isValid(id) ? new ObjectId(id) : id));
+        commitDocs = await commitsColl.find({ _id: { $in: queryIds as any } }).toArray();
+      }
+
+      const mapped = commitDocs.map((doc: any) => ({
+        sha: doc._id || doc.sha,
+        commit: {
+          url: doc.commit?.url || doc.url || "",
+          date: doc.commit?.date || doc.stats?.date || doc.date || null,
+          message: doc.commit?.message || doc.message || "",
+          comment_count: doc.commit?.comment_count || doc.comment_count || 0,
+        },
+        stats: {
+          total: doc.stats?.total ?? 0,
+          additions: doc.stats?.additions ?? 0,
+          deletions: doc.stats?.deletions ?? 0,
+          date: doc.stats?.date ?? null,
+        },
+        coverage: doc.coverage ?? null,
+        test_count: doc.test_count ?? null,
+        conclusion: doc.conclusion ?? null,
+      }));
+
+      return mapped;
     } catch (error) {
-      console.error("Error fetching commit-history.json from GitHub:", error);
+      console.error("Error fetching commit-history from MongoDB:", error);
       throw error;
+    } finally {
+      await client.close();
+    }
+  }
+
+  async getCommitHistoryByBranches(owner: string, repoName: string): Promise<Record<string, any[]>> {
+    // 'owner' parameter exists to satisfy IGithubRepository signature.
+    // It's not required for current DB queries; reference it to silence TS6133.
+    void owner;
+    const { MONGO_URI } = process.env;
+    if (!MONGO_URI) throw new Error("MONGO_URI not set in environment");
+
+    const client = new MongoClient(String(MONGO_URI));
+    try {
+      await client.connect();
+      // Allow overriding the database name via MONGO_DB_NAME env var. If not provided,
+      // client.db() will use the database specified in the connection string or default to 'test'.
+      const dbName = process.env.MONGO_DB_NAME;
+      const db = dbName ? client.db(dbName) : client.db();
+      // Diagnostic: print the resolved database name so we know where we're querying
+      try {
+        console.debug("GithubRepository.getCommitHistoryByBranches - connected db:", db.databaseName || '<unknown>');
+      } catch (e) {
+        console.debug("GithubRepository.getCommitHistoryByBranches - could not read db.databaseName");
+      }
+      const branchesColl = db.collection("branches");
+      // Diagnostic: count and sample branches to verify collection contents
+      try {
+        const totalBranches = await branchesColl.countDocuments();
+        console.debug("GithubRepository.getCommitHistoryByBranches - branches total count:", totalBranches);
+        if (totalBranches > 0) {
+          const sample = await branchesColl.find({}).limit(5).toArray();
+          console.debug("GithubRepository.getCommitHistoryByBranches - sample branches:", sample.map((b:any) => ({ branch_name: b.branch_name, repo_name: b.repo_name, commits_count: Array.isArray(b.commits) ? b.commits.length : 0 })));
+        }
+      } catch (diagE) {
+        console.debug("GithubRepository.getCommitHistoryByBranches - diagnostic branches read failed:", diagE);
+      }
+  const commitsColl = db.collection("commits");
+
+      // Use aggregation with $lookup to join commits referenced by each branch
+      // Match repo_name case-insensitively to be robust to stored owner/repo casing
+      const pipeline = [
+        { $match: { $expr: { $eq: [{ $toLower: "$repo_name" }, String(repoName).toLowerCase()] } } },
+        {
+          $lookup: {
+            from: "commits",
+            let: { commitIds: "$commits" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $or: [
+                      { $in: ["$_id", "$$commitIds"] },
+                      { $in: [{ $toString: "$_id" }, "$$commitIds"] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: "commit_docs"
+          }
+        }
+      ];
+
+      const branchesWithCommits = await branchesColl.aggregate(pipeline).toArray();
+      console.debug("GithubRepository.getCommitHistoryByBranches - repoName:", repoName, "aggregation matched branches:", branchesWithCommits.map((b: any) => b.branch_name));
+
+      // If aggregation returned nothing, provide diagnostic info and try fallbacks
+      if (!branchesWithCommits || branchesWithCommits.length === 0) {
+        console.warn("GithubRepository.getCommitHistoryByBranches - aggregation returned no branches for repoName:", repoName);
+        try {
+          const exact = await branchesColl.find({ repo_name: repoName }).toArray();
+          console.debug("Branches exact match count:", exact.length, exact.slice(0,5).map((x:any) => ({ branch_name: x.branch_name, repo_name: x.repo_name, commits_count: Array.isArray(x.commits)? x.commits.length:0 })));
+          const regex = await branchesColl.find({ repo_name: { $regex: repoName, $options: 'i' } }).toArray();
+          console.debug("Branches regex(i) match count:", regex.length, regex.slice(0,5).map((x:any) => ({ branch_name: x.branch_name, repo_name: x.repo_name, commits_count: Array.isArray(x.commits)? x.commits.length:0 })));
+
+          const fallbackBranches = exact.length > 0 ? exact : regex;
+          if (fallbackBranches && fallbackBranches.length > 0) {
+            // Build result by resolving commit docs for each branch
+            const fallbackResult: Record<string, any[]> = {};
+            for (const bdoc of fallbackBranches) {
+              const ids = Array.isArray(bdoc.commits) ? bdoc.commits : [];
+              const commitDocs: any[] = [];
+              for (const id of ids) {
+                const conditions: any[] = [];
+                if (ObjectId.isValid(String(id))) {
+                  try {
+                    conditions.push({ _id: new ObjectId(String(id)) });
+                  } catch (e) {
+                    // ignore
+                  }
+                }
+                // match string _id or sha
+                conditions.push({ _id: String(id) });
+                conditions.push({ sha: String(id) });
+                const found = await commitsColl.find({ $or: conditions }).toArray();
+                if (found && found.length > 0) {
+                  commitDocs.push(...found);
+                } else {
+                  console.debug("No commit doc found for id", id, "in branch", bdoc.branch_name);
+                }
+              }
+              const mapped = commitDocs.map((doc: any) => ({
+                html_url: doc.commit?.url || doc.url || "",
+                sha: doc._id || doc.sha,
+                stats: {
+                  total: doc.stats?.total ?? 0,
+                  additions: doc.stats?.additions ?? 0,
+                  deletions: doc.stats?.deletions ?? 0,
+                  date: doc.stats?.date ?? null,
+                },
+                commit: {
+                  date: new Date(doc.commit?.date || doc.stats?.date || doc.date),
+                  message: doc.commit?.message || doc.message || "",
+                  url: doc.commit?.url || doc.url || "",
+                  comment_count: doc.commit?.comment_count || doc.comment_count || 0,
+                },
+                coverage: doc.coverage ?? null,
+                test_count: doc.test_count ?? null,
+                conclusion: doc.conclusion ?? null,
+              }));
+              mapped.sort((a,b)=> (b.commit.date?.getTime?.()||0) - (a.commit.date?.getTime?.()||0));
+              fallbackResult[bdoc.branch_name] = mapped;
+            }
+            console.debug("GithubRepository.getCommitHistoryByBranches - returning fallback result for branches:", Object.keys(fallbackResult));
+            return fallbackResult;
+          }
+        } catch (diagErr) {
+          console.error("Error during branches diagnostic/fallback:", diagErr);
+        }
+      }
+      const result: Record<string, any[]> = {};
+
+      for (const b of branchesWithCommits) {
+        const commitDocs = Array.isArray(b.commit_docs) ? b.commit_docs : [];
+        const mapped = commitDocs.map((doc: any) => ({
+          html_url: doc.commit?.url || doc.url || "",
+          sha: doc._id || doc.sha,
+          stats: {
+            total: doc.stats?.total ?? 0,
+            additions: doc.stats?.additions ?? 0,
+            deletions: doc.stats?.deletions ?? 0,
+            date: doc.stats?.date ?? null,
+          },
+          commit: {
+            date: new Date(doc.commit?.date || doc.stats?.date || doc.date),
+            message: doc.commit?.message || doc.message || "",
+            url: doc.commit?.url || doc.url || "",
+            comment_count: doc.commit?.comment_count || doc.comment_count || 0,
+          },
+          coverage: doc.coverage ?? null,
+          test_count: doc.test_count ?? null,
+          conclusion: doc.conclusion ?? null,
+        }));
+
+        mapped.sort((a, b) => b.commit.date.getTime() - a.commit.date.getTime());
+        result[b.branch_name] = mapped;
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error fetching commits by branches (aggregation):", error);
+      throw error;
+    } finally {
+      await client.close();
     }
   }
 

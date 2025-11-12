@@ -3,7 +3,8 @@ import TeacherCommentsRepositoryInterface from "../domain/CommentsRepositoryInte
 import { CommentDataObject,CommentsCreationObject } from "../domain/CommentsInterface";
 import { VITE_API } from "../../../../config";
 
-const API_URL = VITE_API + "/commentsSubmission";
+const API_BASE = (VITE_API as any) || "/api";
+const API_URL = API_BASE.replace(/\/$/, "") + "/commentsSubmission";
 
 
 class TeacherCommentsRepository implements TeacherCommentsRepositoryInterface {
@@ -17,6 +18,12 @@ class TeacherCommentsRepository implements TeacherCommentsRepositoryInterface {
         throw new Error("Failed to get comments by submission ID");
       }
     } catch (error) {
+      const status = (error as any)?.response?.status;
+      if (status === 404) {
+        // No comments endpoint or none for this submission -> treat as empty
+        console.warn(`Comments not found for submission ${submissionId}`);
+        return [];
+      }
       console.error("Error getting comments by submission ID:", error);
       throw error;
     }

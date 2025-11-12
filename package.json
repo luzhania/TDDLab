@@ -3,7 +3,8 @@
     "check-node-version": "^4.2.1",
     "crypto-js": "^4.2.0",
     "jszip": "^3.10.1",
-    "langchain": "^0.3.27"
+    "langchain": "^0.3.27",
+    "mongodb": "^7.0.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
