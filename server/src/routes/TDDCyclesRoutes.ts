@@ -58,4 +58,9 @@ TDDCyclesRouter.get(
   async (req, res) => await tddCyclesController.getCommitCycles(req, res)
 );
 
+TDDCyclesRouter.get(
+  "/branches",
+  async (req, res) => await tddCyclesController.getAvailableBranches(req, res)
+);
+
 export default TDDCyclesRouter;

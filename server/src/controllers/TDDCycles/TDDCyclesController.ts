@@ -10,6 +10,7 @@ import { DBCommitsRepository } from "../../modules/TDDCycles/Repositories/DBComm
 import { GetCommitTimeLineUseCase } from "../../modules/TDDCycles/Application/getCommitTimeLineUseCase";
 import { GetCommitHistoryUseCase } from "../../modules/TDDCycles/Application/getCommitHistoryUseCase";
 import { GetCommitCyclesUseCase } from "../../modules/TDDCycles/Application/getCommitCyclesUseCase";
+import { GetAvailableBranchesUseCase } from "../../modules/TDDCycles/Application/getAvailableBranchesUseCase";
 
 
 
@@ -23,6 +24,7 @@ class TDDCyclesController {
   getCommitExecutions: GetCommitTimeLineUseCase;
   getCommitHistoryUseCase: GetCommitHistoryUseCase;
   getCommitCyclesUseCase: GetCommitCyclesUseCase;
+  getAvailableBranchesUseCase: GetAvailableBranchesUseCase;
 
   constructor(
     dbCommitsRepository: IDBCommitsRepository,
@@ -45,6 +47,7 @@ class TDDCyclesController {
     );
     this.getCommitHistoryUseCase = new GetCommitHistoryUseCase(githubRepository);
     this.getCommitCyclesUseCase = new GetCommitCyclesUseCase(githubRepository);
+    this.getAvailableBranchesUseCase = new GetAvailableBranchesUseCase(githubRepository);
     this.dbCommitsRepository = new DBCommitsRepository();
     this.dbJobsRepository = dbJobsRepository;
   }
@@ -89,12 +92,12 @@ class TDDCyclesController {
   // New: proxy and map commit-history.json from GitHub (frontend logic moved server-side)
   async getCommitHistory(req: Request, res: Response) {
     try {
-      const { owner, repoName } = req.query;
+      const { owner, repoName, branch } = req.query;
       if (!owner || !repoName) {
         return res.status(400).json({ error: "Bad request, missing owner or repoName" });
       }
 
-      const commits = await this.getCommitHistoryUseCase.execute(String(owner), String(repoName));
+      const commits = await this.getCommitHistoryUseCase.execute(String(owner), String(repoName), String(branch || 'main'));
       return res.status(200).json(commits);
     } catch (error) {
       console.error("Error fetching commit history:", error);
@@ -106,15 +109,30 @@ class TDDCyclesController {
   // New: commit cycles endpoint using the same raw file
   async getCommitCycles(req: Request, res: Response) {
     try {
+      const { owner, repoName, branch } = req.query;
+      if (!owner || !repoName) {
+        return res.status(400).json({ error: "Bad request, missing owner or repoName" });
+      }
+
+      const commits = await this.getCommitCyclesUseCase.execute(String(owner), String(repoName), String(branch || 'main'));
+      return res.status(200).json(commits);
+    } catch (error) {
+      console.error("Error fetching commit cycles:", error);
+      return res.status(500).json({ error: "Server error" });
+    }
+  }
+
+  async getAvailableBranches(req: Request, res: Response) {
+    try {
       const { owner, repoName } = req.query;
       if (!owner || !repoName) {
         return res.status(400).json({ error: "Bad request, missing owner or repoName" });
       }
 
-      const commits = await this.getCommitCyclesUseCase.execute(String(owner), String(repoName));
-      return res.status(200).json(commits);
+      const branches = await this.getAvailableBranchesUseCase.execute(String(owner), String(repoName));
+      return res.status(200).json(branches);
     } catch (error) {
-      console.error("Error fetching commit cycles:", error);
+      console.error("Error fetching available branches:", error);
       return res.status(500).json({ error: "Server error" });
     }
   }

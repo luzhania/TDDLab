@@ -26,41 +26,26 @@ const preprocessTDDLogs = (tddLogs: TDDLogEntry[]): CommitTestsMapping[] => {
   if (!tddLogs || tddLogs.length === 0) {
     return [];
   }
-  
+
   const commitMappings: CommitTestsMapping[] = [];
-  let currentCommitIndex = -1;
   let currentTests: TestExecutionLog[] = [];
-  let currentCommitData: CommitLog | null = null;
-  
+  let commitIndex = 0;
+
   for (const log of tddLogs) {
-    // Si es un commit, guardamos los tests del commit anterior (si existen)
-    if ('commitId' in log) {
-      if (currentCommitIndex >= 0 && currentTests.length > 0) {
-        commitMappings.push({
-          commitIndex: currentCommitIndex,
-          commitData: currentCommitData,
-          tests: [...currentTests]
-        });
-      }
+    if ('commitId' in log) { // It's a commit log
+      // This commit is associated with the tests we've collected so far.
+      commitMappings.push({
+        commitIndex: commitIndex,
+        commitData: log,
+        tests: [...currentTests]
+      });
       
-      // Iniciamos un nuevo commit
-      currentCommitIndex++;
-      currentCommitData = log;
+      // Reset for the next group of tests.
       currentTests = [];
-    }
-    // Si es una ejecución de tests, la agregamos al commit actual
-    else if ('numPassedTests' in log) {
+      commitIndex++;
+    } else if ('numPassedTests' in log) { // It's a test execution log
       currentTests.push(log);
     }
-  };
-  
-  // No olvidar agregar el último commit si tiene tests
-  if (currentCommitIndex >= 0 && currentTests.length > 0) {
-    commitMappings.push({
-      commitIndex: currentCommitIndex,
-      commitData: currentCommitData,
-      tests: [...currentTests]
-    });
   }
   
   return commitMappings;
@@ -94,11 +79,9 @@ const TDDBoard: React.FC<CycleReportViewProps> = ({
   );
 
   const getTestsForCommit = (commitIndex: number): TestExecutionLog[] => {
-    // Buscar el commit en los logs preprocesados por índice
-    const commitMapping = processedTDDLogs.find(
-      mapping => mapping.commitIndex === commitIndex
-    );
-    
+    // The commitIndex from the chart corresponds to the order in the reversed `commits` array.
+    // We assume the order is the same in `processedTDDLogs`.
+    const commitMapping = processedTDDLogs[commitIndex];
     return commitMapping ? commitMapping.tests : [];
   };
   
@@ -229,38 +212,15 @@ const TDDBoard: React.FC<CycleReportViewProps> = ({
   const onClick = async (event: any) => {
     const elements = getElementAtEvent(chartRef.current, event);
     if (elements.length > 0) {
-      const dataSetIndexNum = elements[0].datasetIndex;
-      const commit = commits.slice().reverse()[dataSetIndexNum];
-      if (commit?.html_url) {
-        const regex = /https:\/\/github\.com\/([^/]+)\/([^/]+)\/commit\/([^/]+)/;
-        const match = commit.html_url.match(regex);
-  
-        if (match) {
-          const repoOwner = match[1];
-          const repoName = match[2];
-          const sha = match[3];
-  
-          try {
-            const response = await fetch(
-              `${VITE_API}/TDDCycles/commit-timeline?sha=${sha}&repoName=${repoName}&owner=${repoOwner}`
-            );
-  
-            if (response.ok) {
-              await response.json();
-              // Filtrar los tests del commit específico usando el tdd_log.json local
-              const commitIndexInOriginal = dataSetIndexNum - 1;
-              const testsForCommit = getTestsForCommit(commitIndexInOriginal);
-
-              setCommitTimelineData(testsForCommit); 
-              setSelectedCommit(commit); 
-              setOpenModal(true); 
-            } else {
-              console.error("Error al obtener los datos:", response.statusText);
-            }
-          } catch (error) {
-            console.error("Error al llamar a la API:", error);
-          }
-          }
+      const commitIndex = elements[0].datasetIndex; // Use datasetIndex, not index
+      const reversedCommits = commits.slice().reverse();
+      const commit = reversedCommits[commitIndex];
+      
+      if (commit) {
+        const testsForCommit = getTestsForCommit(commitIndex);
+        setCommitTimelineData(testsForCommit); 
+        setSelectedCommit(commit); 
+        setOpenModal(true); 
       }
     }
   };
@@ -269,6 +229,7 @@ const TDDBoard: React.FC<CycleReportViewProps> = ({
     setOpenModal(false);
     setSelectedCommit(null);
   };
+
   
   useEffect(() => {
   

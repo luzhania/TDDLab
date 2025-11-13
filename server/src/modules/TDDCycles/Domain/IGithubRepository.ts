@@ -15,7 +15,8 @@ export interface IGithubRepository {
     getJobsDataFromGithub(owner: string, repoName: string, listOfCommitsWithActions: [string, number][]): Promise<Record<string, JobDataObject>>;
     getCommitsInforForTDDCycle(owner: string, repoName: string, commits: CommitDataObject[]): Promise<TDDCycleDataObject[]>;
     fetchCoverageDataForCommit(owner: string, repoName: string, sha: string): Promise<any>;
-    fetchCommitHistoryJson(owner: string, repoName: string): Promise<any[]>;
-    getCommitHistoryData(owner: string, repoName: string): Promise<CommitHistoryData[]>;
-    getCommitCyclesData(owner: string, repoName: string): Promise<CommitCycleData[]>;
+    fetchCommitHistoryJson(owner: string, repoName: string, branch: string): Promise<any[]>;
+    getCommitHistoryData(owner: string, repoName: string, branch: string): Promise<CommitHistoryData[]>;
+    getCommitCyclesData(owner: string, repoName: string, branch: string): Promise<CommitCycleData[]>;
+    getAvailableBranches(owner: string, repoName: string): Promise<string[]>;
 }

@@ -304,9 +304,9 @@ export class GithubRepository implements IGithubRepository {
     return jobs;
   }
 
-  async fetchCommitHistoryJson(owner: string, repoName: string): Promise<any[]> {
+  async fetchCommitHistoryJson(owner: string, repoName: string, branch: string): Promise<any[]> {
     try {
-      const url = `https://raw.githubusercontent.com/${owner}/${repoName}/main/script/commit-history.json`;
+      const url = `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/script/commit-history.${branch}.json`;
       const response = await axios.get(url);
       
       if (response.status !== 200) {
@@ -315,13 +315,13 @@ export class GithubRepository implements IGithubRepository {
 
       return response.data as any[];
     } catch (error) {
-      console.error("Error fetching commit-history.json from GitHub:", error);
+      console.error(`Error fetching commit-history.${branch}.json from GitHub:`, error);
       throw error;
     }
   }
 
-  async getCommitHistoryData(owner: string, repoName: string): Promise<CommitHistoryData[]> {
-    const commitHistory = await this.fetchCommitHistoryJson(owner, repoName);
+  async getCommitHistoryData(owner: string, repoName: string, branch: string): Promise<CommitHistoryData[]> {
+    const commitHistory = await this.fetchCommitHistoryJson(owner, repoName, branch);
     const commits: CommitHistoryData[] = commitHistory.map((commitData: any) => ({
       html_url: commitData.commit.url,
       sha: commitData.sha,
@@ -345,13 +345,54 @@ export class GithubRepository implements IGithubRepository {
     return commits;
   }
 
-  async getCommitCyclesData(owner: string, repoName: string): Promise<CommitCycleData[]> {
-    const commitHistory = await this.fetchCommitHistoryJson(owner, repoName);
+  async getCommitCyclesData(owner: string, repoName: string, branch: string): Promise<CommitCycleData[]> {
+    const commitHistory = await this.fetchCommitHistoryJson(owner, repoName, branch);
     return commitHistory.map((commitData: any) => ({
       url: commitData.commit.url,
       sha: commitData.sha,
       tddCycle: commitData.tdd_cycle ?? "null",
       coverage: commitData.coverage,
     }));
+  }
+
+  async getAvailableBranches(owner: string, repoName: string): Promise<string[]> {
+    try {
+      // Step 1: Fetch all branches from the repository
+      const branchesResponse = await this.octokit.request('GET /repos/{owner}/{repo}/branches', {
+        owner,
+        repo: repoName,
+      });
+
+      if (branchesResponse.status !== 200) {
+        throw new Error(`Failed to fetch branches: ${branchesResponse.status}`);
+      }
+
+      const branches = branchesResponse.data;
+
+      // Step 2: Check each branch for the existence of its history file
+      const checkPromises = branches.map(async (branch) => {
+        const branchName = branch.name;
+        const sanitizedBranchName = branchName.replace(/[^a-zA-Z0-9_.-]/g, '_');
+        const url = `https://raw.githubusercontent.com/${owner}/${repoName}/${branchName}/script/commit-history.${sanitizedBranchName}.json`;
+
+        try {
+          // Use a HEAD request for efficiency, we only need to know if the file exists
+          await axios.head(url);
+          return branchName; // If successful, this branch has a history file
+        } catch (error) {
+          // A 404 error is expected for branches without a history file, so we ignore it
+          return null;
+        }
+      });
+
+      // Step 3: Collect and filter the results
+      const results = await Promise.all(checkPromises);
+      const availableBranches = results.filter((name): name is string => name !== null);
+
+      return availableBranches;
+    } catch (error) {
+      console.error("Error fetching available branches from GitHub:", error);
+      return [];
+    }
   }
 }

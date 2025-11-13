@@ -3,8 +3,8 @@ import { CommitCycle } from "./TddCycleInterface";
 import { TDDLogEntry } from "./TDDLogInterfaces"; // add 
 
 export interface CommitHistoryRepository {
-  obtainCommitsOfRepo(owner: string, repoName: string): Promise<CommitDataObject[]>;
-  obtainUserName(owner: string): Promise<string>;
-  obtainCommitTddCycle(owner: string, repoName: string): Promise<CommitCycle[]>; 
-  obtainTDDLogs(owner: string, repoName: string): Promise<TDDLogEntry[]>; // add
+  obtainCommitsOfRepo(owner: string, repoName: string, branch: string): Promise<CommitDataObject[]>;
+  obtainCommitTddCycle(owner: string, repoName: string, branch: string): Promise<CommitCycle[]>; 
+  obtainTDDLogs(owner: string, repoName: string, branch: string): Promise<TDDLogEntry[]>; // add
+  obtainAvailableBranches(owner: string, repoName: string): Promise<string[]>;
 }

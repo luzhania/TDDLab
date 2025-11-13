@@ -4,6 +4,7 @@ import { GetCommitTddCycle } from "../../modules/TDDCycles-Visualization/applica
 
 import { GetTDDLogs } from "../../modules/TDDCycles-Visualization/application/GetTDDLogs";
 import { GetUserName } from "../../modules/TDDCycles-Visualization/application/GetUserName";
+import { GetAvailableBranches } from "../../modules/TDDCycles-Visualization/application/GetAvailableBranches";
 import TDDCharts from "./components/TDDChart";
 import { CommitDataObject } from "../../modules/TDDCycles-Visualization/domain/githubCommitInterfaces";
 import "./styles/TDDChartPageStyles.css";
@@ -69,6 +70,8 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
   const [loading, setLoading] = useState(true);
   const [comments, setComments] = useState<CommentDataObject[] | null>(null);
   const [feedback, setFeedback] = useState<string>("");
+  const [selectedBranch, setSelectedBranch] = useState<string>('main');
+  const [availableBranches, setAvailableBranches] = useState<string[]>([]);
 
   const [emails, setEmails] = useState<{ [key: number]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -77,17 +80,18 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
   const getCommitTddCycleUseCase = new GetCommitTddCycle(port);
   const getTDDLogsUseCase = new GetTDDLogs(port);
   const getUserNameUseCase = new GetUserName(port);
+  const getAvailableBranchesUseCase = new GetAvailableBranches(port);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-  const tddlogs = await getTDDLogsUseCase.execute(repoOwner, repoName);
+      const tddlogs = await getTDDLogsUseCase.execute(repoOwner, repoName, selectedBranch);
       setTDDLogsInfo(tddlogs);
 
-  const commits = await getCommitsOfRepoUseCase.execute(repoOwner, repoName);
+      const commits = await getCommitsOfRepoUseCase.execute(repoOwner, repoName, selectedBranch);
       setCommitsInfo(commits);
 
-  const tddCycles = await getCommitTddCycleUseCase.execute(repoOwner, repoName);
+      const tddCycles = await getCommitTddCycleUseCase.execute(repoOwner, repoName, selectedBranch);
       setCommitsTddCycles(tddCycles);
 
     } catch (error) {
@@ -96,6 +100,21 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const fetchBranches = async () => {
+      try {
+        const branches = await getAvailableBranchesUseCase.execute(repoOwner, repoName);
+        setAvailableBranches(branches);
+        if (branches.length > 0 && !branches.includes(selectedBranch)) {
+          setSelectedBranch(branches[0]);
+        }
+      } catch (error) {
+        console.error("Error fetching available branches:", error);
+      }
+    };
+    fetchBranches();
+  }, [repoOwner, repoName]);
 
   const obtainComments = async () => {
     try {
@@ -164,7 +183,7 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
 
   useEffect(() => {
     fetchData();
-  }, [repoOwner, repoName]);
+  }, [repoOwner, repoName, selectedBranch]); // Added selectedBranch to dependencies
 
   const goToPreviousStudent = () => {
     if (currentIndex > 0) {
@@ -203,6 +222,18 @@ function TDDChartPage({ port, role, teacher_id, graphs }: Readonly<CycleReportVi
   return (
     <div className="container">
       <h1 data-testid="repoNameTitle">Tarea: {repoName}</h1>
+      <div className="branch-selector">
+        <label htmlFor="branch-select">Seleccionar Rama:</label>
+        <select
+          id="branch-select"
+          value={selectedBranch}
+          onChange={(e) => setSelectedBranch(e.target.value)}
+        >
+          {availableBranches.map(branch => (
+            <option key={branch} value={branch}>{branch}</option>
+          ))}
+        </select>
+      </div>
       {!isStudent(role) && (
         <h1 data-testid="repoOwnerTitle">Autor: {ownerName}</h1>
       )}

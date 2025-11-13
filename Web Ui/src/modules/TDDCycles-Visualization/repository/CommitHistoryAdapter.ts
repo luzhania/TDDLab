@@ -19,8 +19,8 @@ export class CommitHistoryAdapter implements CommitHistoryRepository {
   
 
   // function for obtain TDD_log.json
-  private getTDDLogUrl(owner: string, repoName: string): string {
-    return `https://raw.githubusercontent.com/${owner}/${repoName}/main/script/tdd_log.json`;
+  private getTDDLogUrl(owner: string, repoName: string, branch: string): string {
+    return `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/script/tdd_log.${branch}.json`;
   }
 
   async obtainUserName(owner: string): Promise<string> {
@@ -42,11 +42,12 @@ export class CommitHistoryAdapter implements CommitHistoryRepository {
   async obtainCommitsOfRepo(
     owner: string,
     repoName: string,
+    branch: string,
   ): Promise<CommitDataObject[]> {
     try {
       // Now request our backend endpoint which centralizes this logic
       const url = `${this.backAPI}/commits-history`;
-      const response = await axios.get(url, { params: { owner, repoName } });
+      const response = await axios.get(url, { params: { owner, repoName, branch } });
 
       if (response.status !== 200) {
         throw new Error(`HTTP error! Status: ${response.status}`);
@@ -71,10 +72,11 @@ export class CommitHistoryAdapter implements CommitHistoryRepository {
   async obtainCommitTddCycle(
     owner: string,
     repoName: string,
+    branch: string,
   ): Promise<CommitCycle[]> {
     try {
       const url = `${this.backAPI}/commit-cycles`;
-      const response = await axios.get(url, { params: { owner, repoName } });
+      const response = await axios.get(url, { params: { owner, repoName, branch } });
 
       if (response.status !== 200) {
         throw new Error(`HTTP error! Status: ${response.status}`);
@@ -97,9 +99,10 @@ export class CommitHistoryAdapter implements CommitHistoryRepository {
   async obtainTDDLogs(
     owner: string,
     repoName: string,
+    branch: string,
   ): Promise<TDDLogEntry[]> {
     try {
-      const tddLogUrl = this.getTDDLogUrl(owner, repoName);
+      const tddLogUrl = this.getTDDLogUrl(owner, repoName, branch);
       const response = await axios.get<TDDLogEntry[]>(tddLogUrl);
 
       if (response.status !== 200) {
@@ -114,6 +117,25 @@ export class CommitHistoryAdapter implements CommitHistoryRepository {
         return [];
       }
       console.error("Error al obtener tdd_log.json:", error);
+      throw error;
+    }
+  }
+
+  async obtainAvailableBranches(
+    owner: string,
+    repoName: string,
+  ): Promise<string[]> {
+    try {
+      const url = `${this.backAPI}/branches`;
+      const response = await axios.get(url, { params: { owner, repoName } });
+
+      if (response.status !== 200) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error("Error al obtener las ramas disponibles:", error);
       throw error;
     }
   }
