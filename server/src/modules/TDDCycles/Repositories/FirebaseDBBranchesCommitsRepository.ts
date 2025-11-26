@@ -1,7 +1,8 @@
 import { db } from "../../../config/firebase";
 import { CommitHistoryData } from "../Domain/ICommitHistoryData";
+import { IFirebaseDBBranchesCommitsRepository } from "../Domain/IFirebaseDBBranchesCommitsRepository";
 
-export class FirebaseDBBranchesCommitsRepository {
+export class FirebaseDBBranchesCommitsRepository implements IFirebaseDBBranchesCommitsRepository {
   
   async getCommitHistoryByBranches(owner: string, repoName: string): Promise<Record<string, CommitHistoryData[]>> {
     try {
