@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import { PropagateLoader } from "react-spinners";
 import { CommitHistoryRepository } from "../../../modules/TDDCycles-Visualization/domain/CommitHistoryRepositoryInterface";
 import { CommitDataObject } from "../../../modules/TDDCycles-Visualization/domain/githubCommitInterfaces";
-import { GetCommitsOfRepo } from "../../../modules/TDDCycles-Visualization/application/GetCommitsOfRepo";
 import TDDCycleList from "./TDDCycleList";
 
 interface CycleReportViewProps {
@@ -17,14 +16,25 @@ function TDDList({ port }: Readonly<CycleReportViewProps>) {
   const [commitsInfo, setCommitsInfo] = useState<CommitDataObject[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const getCommitsOfRepoUseCase = new GetCommitsOfRepo(port);
-
   const fetchData = async () => {
     try {
       console.log("Fetching commit information...");
-      const commits: CommitDataObject[] = await getCommitsOfRepoUseCase.execute(repoOwner, repoName);
-      setCommitsInfo(commits);
-      console.log("Página TDDList: ", commits);
+      const branches = await port.obtainCommitsByBranches(repoOwner, repoName);
+      
+      // Flatten commits from all branches
+      let allCommits: CommitDataObject[] = [];
+      Object.values(branches).forEach(branchCommits => {
+        allCommits = [...allCommits, ...branchCommits];
+      });
+      
+      // Remove duplicates by SHA
+      const uniqueCommits = Array.from(new Map(allCommits.map(c => [c.sha, c])).values());
+      
+      // Sort by date descending
+      uniqueCommits.sort((a, b) => new Date(b.commit.date).getTime() - new Date(a.commit.date).getTime());
+
+      setCommitsInfo(uniqueCommits);
+      console.log("Página TDDList: ", uniqueCommits);
     } catch (error) {
       console.error("Error obtaining data:", error);
     } finally {

@@ -7,4 +7,5 @@ export interface CommitHistoryRepository {
   obtainUserName(owner: string): Promise<string>;
   obtainCommitTddCycle(owner: string, repoName: string): Promise<CommitCycle[]>; 
   obtainTDDLogs(owner: string, repoName: string): Promise<TDDLogEntry[]>; // add
+  obtainCommitsByBranches(owner: string, repoName: string): Promise<Record<string, CommitDataObject[]>>;
 }

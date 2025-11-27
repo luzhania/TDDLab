@@ -18,9 +18,9 @@ export class CommitHistoryByBranchesController {
 
       const data = await this.getCommitHistoryByBranchesUseCase.execute(String(owner), String(repoName));
       return res.status(200).json(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching commit history by branches:", error);
-      return res.status(500).json({ error: "Server error" });
+      return res.status(500).json({ error: "Server error", details: error.message });
     }
   }
 }

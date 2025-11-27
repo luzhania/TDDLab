@@ -6,12 +6,24 @@ export class FirebaseDBBranchesCommitsRepository implements IFirebaseDBBranchesC
   
   async getCommitHistoryByBranches(owner: string, repoName: string): Promise<Record<string, CommitHistoryData[]>> {
     try {
+      console.log(`Fetching branches for repo: ${repoName}, user: ${owner}`);
       const branchesRef = db.collection("branches");
+      
       // Query branches by repo_name and user_id
-      const snapshot = await branchesRef
+      // Try standard field name first
+      let snapshot = await branchesRef
         .where("repo_name", "==", repoName)
         .where("user_id", "==", owner)
         .get();
+
+      // If empty, try with leading space (data ingestion issue workaround)
+      if (snapshot.empty) {
+        console.log("Standard query empty, trying with leading space in ' repo_name'...");
+        snapshot = await branchesRef
+            .where(" repo_name", "==", repoName)
+            .where("user_id", "==", owner)
+            .get();
+      }
 
       if (snapshot.empty) {
         console.log(`No branches found for repo: ${repoName} and user: ${owner}`);
@@ -19,9 +31,10 @@ export class FirebaseDBBranchesCommitsRepository implements IFirebaseDBBranchesC
       }
 
       const branchesData = snapshot.docs.map(doc => doc.data());
+      console.log(`Found ${branchesData.length} branches`);
       const result: Record<string, CommitHistoryData[]> = {};
       
-      // Collect all unique commit SHAs to fetch them in batch (or parallel)
+      // Collect all unique commit SHAs
       const allCommitShas = new Set<string>();
       branchesData.forEach(branch => {
         if (Array.isArray(branch.commits)) {
@@ -29,25 +42,36 @@ export class FirebaseDBBranchesCommitsRepository implements IFirebaseDBBranchesC
         }
       });
 
+      console.log(`Found ${allCommitShas.size} unique commits to fetch`);
+
       if (allCommitShas.size === 0) {
         return {};
       }
 
-      // Fetch all commits
-      // Firestore getAll supports up to 100 arguments? No, admin SDK getAll supports many.
-      // But let's be safe and fetch them.
-      const commitRefs = Array.from(allCommitShas).map(sha => db.collection("commits").doc(sha));
-      
-      // Use getAll to fetch documents in parallel
-      const commitDocs = await db.getAll(...commitRefs);
-      
+      // Fetch commits by SHA
+      // Since document IDs are NOT SHAs, we must query the 'commits' collection by the 'sha' field.
+      // Firestore 'in' query is limited to 10 values (or 30 in newer versions), so we chunk it.
+      const shasArray = Array.from(allCommitShas);
+      const chunkSize = 10;
       const commitsMap = new Map<string, any>();
-      commitDocs.forEach(doc => {
-        if (doc.exists) {
-          commitsMap.set(doc.id, doc.data());
-        }
-      });
 
+      for (let i = 0; i < shasArray.length; i += chunkSize) {
+          const chunk = shasArray.slice(i, i + chunkSize);
+          const commitsSnapshot = await db.collection("commits")
+            .where("sha", "in", chunk)
+            .get();
+          
+          commitsSnapshot.forEach(doc => {
+              const data = doc.data();
+              // Use the SHA from the data as key
+              if (data.sha) {
+                  commitsMap.set(data.sha, data);
+              }
+          });
+      }
+      
+      console.log(`Fetched ${commitsMap.size} commit documents`);
+      
       // Build the result
       for (const branch of branchesData) {
         const branchName = branch.branch_name;
@@ -77,9 +101,19 @@ export class FirebaseDBBranchesCommitsRepository implements IFirebaseDBBranchesC
   }
 
   private mapToCommitHistoryData(data: any, sha: string): CommitHistoryData {
+    // Handle potential date formats (Firestore Timestamp vs String)
+    let dateObj = new Date();
+    if (data.commit?.date) {
+        if (data.commit.date._seconds) {
+            dateObj = new Date(data.commit.date._seconds * 1000);
+        } else {
+            dateObj = new Date(data.commit.date);
+        }
+    }
+
     return {
       html_url: data.commit?.url || "",
-      sha: data._id || sha,
+      sha: data.sha || sha,
       stats: {
         total: data.stats?.total || 0,
         additions: data.stats?.additions || 0,
@@ -87,7 +121,7 @@ export class FirebaseDBBranchesCommitsRepository implements IFirebaseDBBranchesC
         date: data.stats?.date || "",
       },
       commit: {
-        date: new Date(data.commit?.date || new Date().toISOString()),
+        date: dateObj,
         message: data.commit?.message || "",
         url: data.commit?.url || "",
         comment_count: data.commit?.comment_count || 0,

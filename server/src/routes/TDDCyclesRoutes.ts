@@ -3,11 +3,14 @@ import { DBCommitsRepository } from "../modules/TDDCycles/Repositories/DBCommits
 import { DBJobsRepository } from "../modules/TDDCycles/Repositories/DBJobsRepository";
 import { GithubRepository } from "../modules/TDDCycles/Repositories/GithubRepository";
 import TDDCyclesController from "../controllers/TDDCycles/TDDCyclesController";
+import { FirebaseDBBranchesCommitsRepository } from "../modules/TDDCycles/Repositories/FirebaseDBBranchesCommitsRepository";
+import { CommitHistoryByBranchesController } from "../controllers/TDDCycles/CommitHistoryByBranchesController";
 
 // Create instances of your repositories
 const dbCommitsRepository = new DBCommitsRepository();
 const dbJobsRepository = new DBJobsRepository();
 const githubRepository = new GithubRepository();
+const firebaseDBBranchesCommitsRepository = new FirebaseDBBranchesCommitsRepository();
 
 // Create an instance of your controller
 const tddCyclesController = new TDDCyclesController(
@@ -15,6 +18,7 @@ const tddCyclesController = new TDDCyclesController(
   dbJobsRepository,
   githubRepository
 );
+const commitHistoryByBranchesController = new CommitHistoryByBranchesController(firebaseDBBranchesCommitsRepository);
 
 // Create a new router to handle the TDDCycles routes
 const TDDCyclesRouter = express.Router();
@@ -56,6 +60,11 @@ TDDCyclesRouter.get(
 TDDCyclesRouter.get(
   "/commit-cycles",
   async (req, res) => await tddCyclesController.getCommitCycles(req, res)
+);
+
+TDDCyclesRouter.get(
+  "/commits-history-by-branches",
+  async (req, res) => await commitHistoryByBranchesController.getCommitHistoryByBranches(req, res)
 );
 
 export default TDDCyclesRouter;

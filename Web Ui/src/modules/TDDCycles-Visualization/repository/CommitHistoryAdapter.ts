@@ -117,4 +117,31 @@ export class CommitHistoryAdapter implements CommitHistoryRepository {
       throw error;
     }
   }
+
+  async obtainCommitsByBranches(owner: string, repoName: string): Promise<Record<string, CommitDataObject[]>> {
+    try {
+      const url = `${this.backAPI}/commits-history-by-branches`;
+      const response = await axios.get(url, { params: { owner, repoName } });
+
+      if (response.status !== 200) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+
+      const data = response.data || {};
+      const mapped: Record<string, CommitDataObject[]> = {};
+      for (const branchName of Object.keys(data)) {
+        mapped[branchName] = (data[branchName] || []).map((c: any) => ({
+          ...c,
+          commit: {
+            ...c.commit,
+            date: new Date(c.commit.date),
+          },
+        }));
+      }
+      return mapped;
+    } catch (error) {
+      console.error("Error obtaining commits by branches:", error);
+      throw error;
+    }
+  }
 }
